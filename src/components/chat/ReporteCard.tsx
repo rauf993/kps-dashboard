@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { Download, FileText, Loader2 } from "lucide-react";
 import type { ResultadoReporte } from "@/lib/reportes/crear-reporte";
+import { fetchConSesion } from "@/components/lib/api-client";
 
-// El PDF se arma en el navegador al pulsar Descargar: en el chat solo viaja
-// el markdown. Así no guardamos archivos ni pagamos almacenamiento, y el
-// usuario puede volver a descargarlo cuando quiera.
+// El PDF se arma al descargar desde un endpoint autenticado. En el chat solo
+// viaja el markdown; no se guardan archivos y la CSP del navegador no necesita
+// permitir workers ni conexiones data/blob.
 export function ReporteCard({ reporte }: { reporte: ResultadoReporte }) {
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,31 +25,30 @@ export function ReporteCard({ reporte }: { reporte: ResultadoReporte }) {
     setGenerando(true);
     setError(null);
     try {
-      // Import dinámico: react-pdf pesa, y solo hace falta al descargar.
-      const [{ pdf }, { ReportePdf }] = await Promise.all([
-        import("@react-pdf/renderer"),
-        import("@/lib/reportes/ReportePdf"),
-      ]);
-      const generadoEl = new Intl.DateTimeFormat("es-MX", {
-        dateStyle: "long",
-        timeStyle: "short",
-        timeZone: "America/Mexico_City",
-      }).format(new Date());
-
-      const blob = await pdf(
-        <ReportePdf
-          title={reporte.title ?? "Reporte"}
-          markdown={reporte.markdown ?? ""}
-          generadoEl={generadoEl}
-        />
-      ).toBlob();
+      const zonaHoraria = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Mexico_City";
+      const respuesta = await fetchConSesion("/api/ai/reportes/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: reporte.title ?? "Reporte",
+          markdown: reporte.markdown ?? "",
+          zonaHoraria,
+        }),
+      });
+      if (!respuesta.ok) {
+        const cuerpo = await respuesta.json().catch(() => null);
+        throw new Error(cuerpo?.error?.message ?? "No se pudo generar el PDF");
+      }
+      const blob = await respuesta.blob();
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `${reporte.fileName ?? "reporte"}.pdf`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
       // Red de seguridad: si el PDF falla, al menos entregamos el contenido
       // en markdown en vez de dejar al usuario sin nada.
@@ -60,8 +60,10 @@ export function ReporteCard({ reporte }: { reporte: ResultadoReporte }) {
       const a = document.createElement("a");
       a.href = url;
       a.download = `${reporte.fileName ?? "reporte"}.md`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } finally {
       setGenerando(false);
     }

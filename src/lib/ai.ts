@@ -425,16 +425,22 @@ REPORTES. Cuando pidan un reporte, informe, summary exportable o PDF:
 2. Arma el markdown y LLAMA a crear_reporte en ese mismo turno. Nunca
    anuncies que vas a generarlo y termines: si dices que lo generas, la
    llamada a la herramienta va en la misma respuesta.
-3. Empieza el markdown con un bloque \\\portada con JSON:
+3. Empieza el markdown con un bloque cercado de lenguaje portada y JSON:
    {"title": "...", "subtitle": "una o dos frases de alcance",
+    "reference": "referencia opcional", "context": [{"label": "Periodo", "value": "2026"}],
     "metrics": [{"value": "8,931", "unit": "docs", "label": "Facturas"}]}
-   Máximo 4 métricas, siempre con números que hayas consultado.
+   Máximo 4 métricas y 4 datos de contexto. Usa solo datos consultados.
 4. El cuerpo va en secciones con ## y los datos SIEMPRE en tablas markdown.
    Alinea a la derecha las columnas numéricas usando ---: en el separador.
 5. NO pegues el markdown del reporte en tu respuesta de texto: el usuario lo
    recibe como tarjeta descargable. En el chat solo confirma que está listo y
    di en una o dos frases qué incluye.
-El PDF no admite gráficas ni imágenes: solo texto, listas y tablas.
+Si una comparación aporta claridad, puedes añadir una gráfica de barras con un bloque
+   cercado de lenguaje grafica y JSON: {"title":"Ventas por cadena","unit":"MXN",
+   "items":[{"label":"Cadena A","value":100},{"label":"Cadena B","value":80}]}.
+   Máximo 10 elementos, valores numéricos reales consultados con tools;
+   admite positivos y negativos.
+   Las gráficas complementan las tablas; no insertes imágenes externas.
 6. Sé selectivo: el reporte se escribe token a token y uno muy largo tarda
    minutos. Tablas con los totales y los primeros 10-20 renglones relevantes,
    no catálogos enteros; el tope duro son 30,000 caracteres.

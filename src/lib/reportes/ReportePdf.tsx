@@ -1,19 +1,17 @@
-import { Document, Font, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Font, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { esResaltada, parsearMarkdown, textoPlano, type Bloque } from "./markdown";
 
-// Documento PDF de un reporte de KPS AI. Solo texto y tablas: sin gráficas.
-// react-pdf no lee variables CSS, así que los colores del sistema CRONOS van
-// literales. Helvetica viene integrada en el PDF: cero fuentes externas, cero
-// riesgo de que el reporte falle por una descarga.
-// Geometría de la página (LETTER 612pt menos 44pt de margen a cada lado) y
-// medidas aproximadas de Helvetica. Con estos números calculamos anchos de
+// Documento PDF corporativo de KPS AI. El markdown aporta el contenido;
+// este componente define la maquetación y la paginación A4.
+// Geometría de la página (A4 595.28pt menos 44pt de margen a cada lado) y
+// medidas aproximadas de Hanken Grotesk. Con estos números calculamos anchos de
 // columna en PUNTOS: los porcentajes proporcionales dejaban columnas más
 // estrechas que su propio contenido, la fila se desbordaba y react-pdf
 // terminaba escribiendo una posición corrupta que rompe el render entero.
-const ANCHO_UTIL = 612 - 88;
-const ALTO_UTIL = (792 - 46 - 52) * 0.94; // margen de seguridad en la estimación
+const ANCHO_UTIL = 595.28 - 88;
+const ALTO_UTIL = (841.89 - 88 - 52) * 0.94; // margen de seguridad en la estimación
 const INTERLINEA = 12.75; // 8.5pt * 1.5
-const ANCHO_CARACTER = 4.6; // ~8.5pt Helvetica
+const ANCHO_CARACTER = 4.8; // ~8.5pt Hanken Grotesk
 const PADDING_CELDA = 5;
 const TROZO_PALABRA = 8; // una palabra sin espacios se parte en trozos de 8
 const RE_TROZO = /.{1,8}/g;
@@ -25,129 +23,166 @@ Font.registerHyphenationCallback((palabra) =>
   palabra.length > TROZO_PALABRA ? (palabra.match(RE_TROZO) ?? [palabra]) : [palabra]
 );
 
+const fuentesRegistradas = new Set<string>();
+
+// Se llama al descargar, con la URL pública del sitio. En las pruebas también
+// admite la ruta local de public; registrar una sola vez evita repetir fuentes.
+export function registrarFuentesReporte(base: string) {
+  if (fuentesRegistradas.has(base)) return;
+  Font.register({ family: "Hanken", fonts: [
+    { src: `${base}/fonts/pdf/hanken-regular.ttf`, fontWeight: 400 },
+    { src: `${base}/fonts/pdf/hanken-bold.ttf`, fontWeight: 700 },
+  ] });
+  Font.register({ family: "Plex Mono", fonts: [
+    { src: `${base}/fonts/pdf/ibm-plex-mono-regular.ttf`, fontWeight: 400 },
+    { src: `${base}/fonts/pdf/ibm-plex-mono-semibold.ttf`, fontWeight: 600 },
+  ] });
+  fuentesRegistradas.add(base);
+}
+
 const C = {
-  tinta: "#15171c",
-  tinta2: "#5a616c",
-  tinta3: "#99a0ab",
-  linea: "#e6e6e3",
-  lineaSuave: "#f0f0ed",
-  superficie: "#fafaf9",
-  franja2: "#f0f0ed",
+  tinta: "#1d2638",
+  tinta2: "#526077",
+  tinta3: "#8290a5",
+  linea: "#d9e1ec",
+  lineaSuave: "#ecf0f5",
+  superficie: "#f5f8fc",
+  acento: "#102c86",
+  azulClaro: "#e9effb",
+  blanco: "#ffffff",
 };
 
 const s = StyleSheet.create({
-  pagina: {
-    paddingTop: 46,
-    paddingBottom: 52,
-    paddingHorizontal: 44,
-    fontFamily: "Helvetica",
-    fontSize: 9.5,
-    color: C.tinta2,
-    lineHeight: 1.5,
-  },
-  portada: { marginBottom: 26 },
-  portadaMarca: { fontSize: 7.5, letterSpacing: 1.6, color: C.tinta3, marginBottom: 10 },
-  portadaTitulo: {
-    fontSize: 21,
-    fontFamily: "Helvetica-Bold",
-    color: C.tinta,
-    lineHeight: 1.2,
-    marginBottom: 6,
-  },
-  portadaSubtitulo: { fontSize: 10, color: C.tinta2, marginBottom: 16, lineHeight: 1.45 },
-  metrics: { flexDirection: "row", paddingVertical: 12 },
+  pagina: { paddingTop: 88, paddingBottom: 52, paddingHorizontal: 44, fontFamily: "Hanken", fontSize: 9.5, color: C.tinta2, lineHeight: 1.5 },
+  paginaPortada: { paddingTop: 48, paddingBottom: 52, paddingHorizontal: 44, fontFamily: "Hanken", fontSize: 9.5, color: C.tinta2, lineHeight: 1.5 },
+  portada: { flex: 1 },
+  marcaFila: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  logo: { width: 115, height: 41, objectFit: "contain" },
+  marcaTexto: { fontFamily: "Hanken", fontWeight: 700, fontSize: 14, color: C.acento },
+  tipo: { fontFamily: "Plex Mono", fontSize: 7.5, color: C.acento, letterSpacing: 1 },
+  lineaAzul: { height: 3, backgroundColor: C.acento, marginTop: 20 },
+  portadaCategoria: { marginTop: 80, fontFamily: "Plex Mono", fontSize: 8, color: C.acento, letterSpacing: 1.2 },
+  portadaTitulo: { marginTop: 14, fontSize: 30, fontWeight: 700, color: C.tinta, lineHeight: 1.12 },
+  portadaSubtitulo: { marginTop: 15, fontSize: 12, color: C.tinta2, lineHeight: 1.45 },
+  referencia: { marginTop: 25, fontFamily: "Plex Mono", fontSize: 8, color: C.acento },
+  metadatos: { marginTop: 36, paddingTop: 16, flexDirection: "row", borderTopWidth: 1, borderTopColor: C.linea },
+  metadato: { flex: 1, paddingRight: 12 },
+  metaEtiqueta: { fontFamily: "Plex Mono", fontSize: 7, color: C.tinta3, textTransform: "uppercase", letterSpacing: .6, marginBottom: 5 },
+  metaValor: { fontSize: 9, color: C.tinta, fontWeight: 700 },
+  contexto: { marginTop: 28, padding: 15, backgroundColor: C.superficie },
+  contextoTitulo: { fontFamily: "Plex Mono", fontSize: 7, color: C.acento, letterSpacing: .7, marginBottom: 8 },
+  contextoFila: { flexDirection: "row", marginBottom: 4 },
+  contextoEtiqueta: { width: 105, fontSize: 8.5, color: C.tinta3 },
+  contextoValor: { flex: 1, fontSize: 8.5, color: C.tinta },
+  metrics: { flexDirection: "row", marginTop: 28, backgroundColor: C.azulClaro, paddingVertical: 17, paddingHorizontal: 13 },
+  metrica: { flex: 1, paddingRight: 9 },
+  metricaValor: { fontFamily: "Plex Mono", fontSize: 14.5, fontWeight: 600, color: C.acento },
+  metricaUnidad: { fontSize: 8, color: C.tinta2 },
+  metricaEtiqueta: { fontFamily: "Plex Mono", fontSize: 6.5, color: C.tinta2, marginTop: 5, textTransform: "uppercase" },
+  encabezado: { position: "absolute", top: 27, left: 44, right: 44 },
+  encabezadoTitulo: { fontFamily: "Plex Mono", fontSize: 7, color: C.tinta2, textAlign: "right", maxWidth: 320 },
+  encabezadoLinea: { height: 1, backgroundColor: C.linea, marginTop: 10 },
   reglaPortada: { height: 1, backgroundColor: C.linea },
-  metrica: { flex: 1, paddingRight: 12 },
-  metricaValor: { fontSize: 15, fontFamily: "Helvetica-Bold", color: C.tinta },
-  metricaUnidad: { fontSize: 8.5, fontFamily: "Helvetica", color: C.tinta3 },
-  metricaEtiqueta: {
-    fontSize: 6.8,
-    letterSpacing: 0.7,
-    color: C.tinta3,
-    marginTop: 3,
-    textTransform: "uppercase",
-  },
-
-  // Sin marginTop: un margen superior que no cabe en el salto de página hace
-  // que react-pdf calcule una posición corrupta. El aire se pone abajo del
-  // bloque anterior (tablas y párrafos ya llevan marginBottom).
-  h1: { fontSize: 14, fontFamily: "Helvetica-Bold", color: C.tinta, marginBottom: 6 },
-  h2: { fontSize: 11, fontFamily: "Helvetica-Bold", color: C.tinta, marginBottom: 6 },
-  h3: { fontSize: 9.5, fontFamily: "Helvetica-Bold", color: C.tinta, marginBottom: 4 },
-  parrafo: { marginBottom: 7 },
-  // Línea dibujada con fondo, no con borde (ver nota en `celda`).
+  h1: { fontSize: 14, fontWeight: 700, color: C.tinta, marginBottom: 8 },
+  h2Fila: { flexDirection: "row", alignItems: "center", marginBottom: 9 },
+  h2Numero: { fontFamily: "Plex Mono", fontSize: 9, fontWeight: 600, color: C.acento, width: 27 },
+  h2: { fontSize: 12, fontWeight: 700, color: C.tinta },
+  h3: { fontSize: 9.5, fontWeight: 700, color: C.tinta, marginBottom: 5 },
+  parrafo: { marginBottom: 11 },
   separador: { height: 1, backgroundColor: C.lineaSuave, marginVertical: 12 },
-
-  lista: { marginBottom: 7, paddingLeft: 2 },
-  listaItem: { flexDirection: "row", marginBottom: 2.5 },
-  listaVinneta: { width: 14, color: C.tinta3 },
+  lista: { marginBottom: 11, paddingLeft: 2 },
+  listaItem: { flexDirection: "row", marginBottom: 3 },
+  listaVinneta: { width: 14, color: C.acento },
   listaTexto: { flex: 1 },
-
-  // El contenedor NO lleva borde: si una vista con borde se parte entre
-  // páginas, react-pdf calcula mal el recorte y falla el render. Los bordes
-  // van en las filas, que nunca se parten (wrap={false}).
-  tabla: { marginBottom: 16 },
+  tabla: { marginBottom: 18 },
   grupoFilas: { marginBottom: 0 },
-  filaEncabezado: { flexDirection: "row", backgroundColor: C.franja2 },
+  filaEncabezado: { flexDirection: "row", backgroundColor: C.acento },
   row: { flexDirection: "row" },
   filaAlterna: { backgroundColor: C.superficie },
-  celdaEncabezado: {
-    paddingVertical: 5,
-    paddingHorizontal: PADDING_CELDA,
-    fontSize: 6.8,
-    fontFamily: "Helvetica-Bold",
-    letterSpacing: 0.5,
-    color: C.tinta3,
-    textTransform: "uppercase",
-  },
-  // Sin bordes: un borde que cae en el salto de página hace que react-pdf
-  // calcule mal el recorte y falle el render completo. La separación de
-  // filas se hace con franjas alternas, que no tienen ese problema.
-  celda: {
-    paddingVertical: 4.5,
-    paddingHorizontal: PADDING_CELDA,
-    fontSize: 8.5,
-    color: C.tinta2,
-  },
-  celdaFuerte: { color: C.tinta, fontFamily: "Helvetica-Bold" },
-
-  pie: {
-    position: "absolute",
-    bottom: 26,
-    left: 44,
-    right: 44,
-    fontSize: 7,
-    color: C.tinta3,
-  },
-  pieFila: { flexDirection: "row", justifyContent: "space-between", paddingTop: 6 },
+  filaTotal: { backgroundColor: C.azulClaro },
+  celdaEncabezado: { paddingVertical: 7, paddingHorizontal: PADDING_CELDA, fontFamily: "Plex Mono", fontSize: 6.6, fontWeight: 600, letterSpacing: .2, color: C.blanco, textTransform: "uppercase" },
+  celda: { paddingVertical: 5.5, paddingHorizontal: PADDING_CELDA, fontSize: 8.5, color: C.tinta2 },
+  celdaFuerte: { color: C.tinta, fontWeight: 700 },
+  grafica: { marginBottom: 20, padding: 14, backgroundColor: C.superficie },
+  graficaTitulo: { fontSize: 10, fontWeight: 700, color: C.tinta, marginBottom: 10 },
+  graficaFila: { flexDirection: "row", alignItems: "center", marginBottom: 7 },
+  graficaEtiqueta: { width: 105, fontSize: 8, color: C.tinta2 },
+  graficaPista: { flex: 1, height: 8, flexDirection: "row", backgroundColor: C.azulClaro },
+  graficaMitadIzquierda: { flex: 1, flexDirection: "row", justifyContent: "flex-end", borderRightWidth: 1, borderRightColor: C.tinta3 },
+  graficaMitadDerecha: { flex: 1 },
+  graficaBarra: { height: 8, backgroundColor: C.acento },
+  graficaBarraNegativa: { height: 8, backgroundColor: C.tinta2 },
+  graficaValor: { width: 76, textAlign: "right", fontFamily: "Plex Mono", fontSize: 7.3, color: C.tinta },
+  pie: { position: "absolute", bottom: 24, left: 44, right: 44, fontFamily: "Plex Mono", fontSize: 7, color: C.tinta3 },
+  pieFila: { flexDirection: "row", justifyContent: "space-between", paddingTop: 7 },
 });
 
-function Portada({ bloque }: { bloque: Extract<Bloque, { tipo: "portada" }> }) {
-  const { title, subtitle, metrics } = bloque.spec;
+// react-pdf Image no admite alt; el logo se acompaña de la marca en el documento.
+function Marca({ logoSrc }: { logoSrc?: string }) {
+  // eslint-disable-next-line jsx-a11y/alt-text
+  return logoSrc ? <Image src={logoSrc} style={s.logo} /> : <Text style={s.marcaTexto}>GROUP KPS</Text>;
+}
+
+function Portada({ bloque, generadoEl, usuario, zonaHoraria, logoSrc }: {
+  bloque: Extract<Bloque, { tipo: "portada" }>;
+  generadoEl: string;
+  usuario: string;
+  zonaHoraria: string;
+  logoSrc?: string;
+}) {
+  const { title, subtitle, reference, context, metrics } = bloque.spec;
   return (
     <View style={s.portada}>
-      <Text style={s.portadaMarca}>CRONOS RETAIL · KPS AI</Text>
+      <View style={s.marcaFila}>
+        <Marca logoSrc={logoSrc} />
+        <Text style={s.tipo}>KPS AI · REPORTE</Text>
+      </View>
+      <View style={s.lineaAzul} />
+      <Text style={s.portadaCategoria}>INFORME GENERADO POR KPS AI</Text>
       <Text style={s.portadaTitulo}>{title}</Text>
       {subtitle ? <Text style={s.portadaSubtitulo}>{subtitle}</Text> : null}
-      {metrics?.length ? (
-        <>
-          <View style={s.reglaPortada} />
-          <View style={s.metrics}>
-          {metrics.map((m, i) => (
-            <View key={i} style={s.metrica}>
-              <Text>
-                <Text style={s.metricaValor}>{m.value}</Text>
-                {m.unit ? <Text style={s.metricaUnidad}> {m.unit}</Text> : null}
-              </Text>
-              <Text style={s.metricaEtiqueta}>{m.label}</Text>
-            </View>
-            ))}
-          </View>
-          <View style={s.reglaPortada} />
-        </>
+      {reference ? <Text style={s.referencia}>REF. {reference}</Text> : null}
+      <View style={s.metadatos}>
+        <View style={s.metadato}><Text style={s.metaEtiqueta}>Generado el</Text><Text style={s.metaValor}>{generadoEl}</Text></View>
+        <View style={s.metadato}><Text style={s.metaEtiqueta}>Usuario</Text><Text style={s.metaValor}>{usuario}</Text></View>
+        <View style={s.metadato}><Text style={s.metaEtiqueta}>Zona horaria</Text><Text style={s.metaValor}>{zonaHoraria}</Text></View>
+      </View>
+      {context?.length ? (
+        <View style={s.contexto}>
+          <Text style={s.contextoTitulo}>CONTEXTO DEL REPORTE</Text>
+          {context.map((item, i) => <View key={i} style={s.contextoFila}>
+            <Text style={s.contextoEtiqueta}>{item.label}</Text>
+            <Text style={s.contextoValor}>{item.value}</Text>
+          </View>)}
+        </View>
       ) : null}
+      {metrics?.length ? <View style={s.metrics}>
+        {metrics.map((m, i) => <View key={i} style={s.metrica}>
+          <Text><Text style={s.metricaValor}>{m.value}</Text>{m.unit ? <Text style={s.metricaUnidad}> {m.unit}</Text> : null}</Text>
+          <Text style={s.metricaEtiqueta}>{m.label}</Text>
+        </View>)}
+      </View> : null}
     </View>
   );
+}
+
+function Grafica({ bloque }: { bloque: Extract<Bloque, { tipo: "grafica" }> }) {
+  const maximo = Math.max(...bloque.spec.items.map((item) => Math.abs(item.value)), 1);
+  return <View style={s.grafica}>
+    <Text style={s.graficaTitulo}>{bloque.spec.title}</Text>
+    {bloque.spec.items.map((item, i) => <View key={i} style={s.graficaFila}>
+      <Text style={s.graficaEtiqueta}>{item.label}</Text>
+      <View style={s.graficaPista}>
+        <View style={s.graficaMitadIzquierda}>
+          {item.value < 0 ? <View style={[s.graficaBarraNegativa, { width: `${Math.abs(item.value) / maximo * 100}%` }]} /> : null}
+        </View>
+        <View style={s.graficaMitadDerecha}>
+          {item.value > 0 ? <View style={[s.graficaBarra, { width: `${item.value / maximo * 100}%` }]} /> : null}
+        </View>
+      </View>
+      <Text style={s.graficaValor}>{item.value.toLocaleString("es-MX")}{bloque.spec.unit ? ` ${bloque.spec.unit}` : ""}</Text>
+    </View>)}
+  </View>;
 }
 
 function Filas({
@@ -173,11 +208,13 @@ function Filas({
           </View>
         ))}
       </View>
-      {bloque.filas.slice(desde, hasta).map((row, f) => (
-        <View key={f} style={(desde + f) % 2 === 1 ? [s.row, s.filaAlterna] : s.row}>
+      {bloque.filas.slice(desde, hasta).map((row, f) => {
+        const esTotal = /^total\b/i.test(textoPlano(row[0] ?? "").trim());
+        return (
+        <View key={f} style={esTotal ? [s.row, s.filaTotal] : (desde + f) % 2 === 1 ? [s.row, s.filaAlterna] : s.row}>
           {Array.from({ length: cols }, (_, c) => {
             const bruta = row[c] ?? "";
-            const fuerte = esResaltada(bruta) || c === 0;
+            const fuerte = esTotal || esResaltada(bruta) || c === 0;
             return (
               <View key={c} style={ancho(c)}>
                 <Text
@@ -189,7 +226,7 @@ function Filas({
             );
           })}
         </View>
-      ))}
+      );})}
     </View>
   );
 }
@@ -226,17 +263,22 @@ function Tabla({ bloque }: { bloque: Extract<Bloque, { tipo: "tabla" }> }) {
 function BloqueVista({ bloque }: { bloque: Bloque }) {
   switch (bloque.tipo) {
     case "portada":
-      return <Portada bloque={bloque} />;
+      return null;
+    case "grafica":
+      return <Grafica bloque={bloque} />;
     case "title": {
-      const estilo = bloque.nivel === 1 ? s.h1 : bloque.nivel === 2 ? s.h2 : s.h3;
-      const texto = bloque.numero ? `${bloque.numero}  ${bloque.texto}` : bloque.texto;
-      // Sin wrap={false} ni minPresenceAhead: si el título cae justo en el
-      // salto de página, react-pdf genera una coordenada corrupta y falla
-      // el render entero. Que el título quede al final de una página es un
-      // defecto estético; que no se genere el PDF no lo es.
+      if (bloque.nivel === 2) {
+        return (
+          <View style={s.h2Fila}>
+            {bloque.numero ? <Text style={s.h2Numero}>{bloque.numero.replace(/\.$/, "").padStart(2, "0")}</Text> : null}
+            <Text style={s.h2} orphans={1} widows={1}>{textoPlano(bloque.texto)}</Text>
+          </View>
+        );
+      }
+      const estilo = bloque.nivel === 1 ? s.h1 : s.h3;
       return (
         <Text style={estilo} orphans={1} widows={1}>
-          {textoPlano(texto)}
+          {textoPlano(bloque.texto)}
         </Text>
       );
     }
@@ -253,7 +295,7 @@ function BloqueVista({ bloque }: { bloque: Bloque }) {
         <View style={s.lista}>
           {bloque.items.map((it, i) => (
             <View key={i} style={s.listaItem}>
-              <Text style={s.listaVinneta}>{bloque.ordenada ? `${i + 1}.` : "—"}</Text>
+              <Text style={s.listaVinneta}>{bloque.numeros?.[i] === null ? "" : bloque.ordenada ? `${bloque.numeros?.[i] ?? i + 1}.` : "—"}</Text>
               <Text style={s.listaTexto}>{textoPlano(it)}</Text>
             </View>
           ))}
@@ -294,28 +336,28 @@ function altoFila(row: string[], anchos: Anchos): number {
     ...anchos.map((a, c) => lineas(row[c] ?? "", a - PADDING_CELDA * 2)),
     1
   );
-  return max * INTERLINEA + 9;
+  return max * INTERLINEA + 11;
 }
 
-const ALTO_ENCABEZADO = 21;
+const ALTO_ENCABEZADO = 24;
 
 function altoBloque(b: Bloque): number {
   switch (b.tipo) {
     case "portada":
-      return 60 + lineas(b.spec.title, ANCHO_UTIL) * 26 +
-        (b.spec.subtitle ? lineas(b.spec.subtitle, ANCHO_UTIL) * 15 + 16 : 0) +
-        (b.spec.metrics?.length ? 60 : 0);
+      return 0;
+    case "grafica":
+      return 45 + b.spec.items.length * 24;
     case "title":
-      return (b.nivel === 1 ? 23 : b.nivel === 2 ? 19 : 16);
+      return (b.nivel === 1 ? 25 : b.nivel === 2 ? 22 : 17);
     case "parrafo":
-      return lineas(b.texto, ANCHO_UTIL) * 14.25 + 7;
+      return lineas(b.texto, ANCHO_UTIL) * 14.25 + 11;
     case "lista":
-      return b.items.reduce((t, i) => t + lineas(i, ANCHO_UTIL - 16) * 14.25 + 2.5, 7);
+      return b.items.reduce((t, i) => t + lineas(i, ANCHO_UTIL - 16) * 14.25 + 3, 11);
     case "separador":
       return 25;
     case "tabla": {
       const anchos = anchosDe(b);
-      return ALTO_ENCABEZADO + b.filas.reduce((t, f) => t + altoFila(f, anchos), 0) + 16;
+      return ALTO_ENCABEZADO + b.filas.reduce((t, f) => t + altoFila(f, anchos), 0) + 18;
     }
   }
 }
@@ -327,6 +369,24 @@ function altoBloque(b: Bloque): number {
  * Aquí ningún elemento necesita partirse — las tablas se cortan por filas y
  * el encabezado se repite en cada trozo.
  */
+// react-pdf no puede paginar con seguridad un solo Text que ocupe varias
+// páginas. Cada fragmento conserva el orden del párrafo original.
+function dividirParrafo(texto: string): string[] {
+  const partes: string[] = [];
+  const palabras = texto.split(/\s+/);
+  let actual = "";
+  for (const palabra of palabras) {
+    if (actual && actual.length + palabra.length + 1 > 900) {
+      partes.push(actual);
+      actual = palabra;
+    } else {
+      actual = actual ? `${actual} ${palabra}` : palabra;
+    }
+  }
+  if (actual) partes.push(actual);
+  return partes;
+}
+
 function repartirEnPaginas(bloques: Bloque[]): Bloque[][] {
   const paginas: Bloque[][] = [];
   let actual: Bloque[] = [];
@@ -338,17 +398,23 @@ function repartirEnPaginas(bloques: Bloque[]): Bloque[][] {
     usado = 0;
   };
 
-  for (const bloque of bloques) {
+  const bloquesPaginables = bloques.flatMap((bloque): Bloque[] =>
+    bloque.tipo === "parrafo"
+      ? dividirParrafo(bloque.texto).map((texto) => ({ tipo: "parrafo", texto }))
+      : [bloque]
+  );
+
+  for (const bloque of bloquesPaginables) {
     const alto = altoBloque(bloque);
 
     if (bloque.tipo === "tabla") {
       const anchos = anchosDe(bloque);
       let row = 0;
       while (row < bloque.filas.length) {
-        let disponible = ALTO_UTIL - usado - ALTO_ENCABEZADO - 16;
+        let disponible = ALTO_UTIL - usado - ALTO_ENCABEZADO - 18;
         if (disponible < INTERLINEA * 3) {
           nuevaPagina();
-          disponible = ALTO_UTIL - ALTO_ENCABEZADO - 16;
+          disponible = ALTO_UTIL - ALTO_ENCABEZADO - 18;
         }
         const trozo: string[][] = [];
         while (row < bloque.filas.length) {
@@ -359,6 +425,41 @@ function repartirEnPaginas(bloques: Bloque[]): Bloque[][] {
           row++;
         }
         actual.push({ ...bloque, filas: trozo });
+        usado = ALTO_UTIL - disponible;
+      }
+      continue;
+    }
+
+    if (bloque.tipo === "lista") {
+      // Cada elemento conserva su número al continuar en otra página. Un
+      // elemento extenso también puede partirse sin repetir la viñeta.
+      const entradas = bloque.items.flatMap((item, i) =>
+        dividirParrafo(item).map((texto, parte) => ({
+          texto,
+          numero: parte === 0 ? i + 1 : null,
+        }))
+      );
+      let indice = 0;
+      while (indice < entradas.length) {
+        let disponible = ALTO_UTIL - usado - 11;
+        if (disponible < INTERLINEA * 3) {
+          nuevaPagina();
+          disponible = ALTO_UTIL - 11;
+        }
+        const trozo: typeof entradas = [];
+        while (indice < entradas.length) {
+          const entrada = entradas[indice];
+          const altura = lineas(entrada.texto, ANCHO_UTIL - 16) * 14.25 + 3;
+          if (trozo.length && altura > disponible) break;
+          trozo.push(entrada);
+          disponible -= altura;
+          indice++;
+        }
+        actual.push({
+          ...bloque,
+          items: trozo.map((entrada) => entrada.texto),
+          numeros: trozo.map((entrada) => entrada.numero),
+        });
         usado = ALTO_UTIL - disponible;
       }
       continue;
@@ -379,37 +480,46 @@ export function ReportePdf({
   title,
   markdown,
   generadoEl,
+  usuario = "Usuario de KPS",
+  zonaHoraria = "America/Mexico_City",
+  logoSrc,
 }: {
   title: string;
   markdown: string;
   generadoEl: string;
+  usuario?: string;
+  zonaHoraria?: string;
+  logoSrc?: string;
 }) {
   const bloques = parsearMarkdown(markdown);
-  // Si el modelo no mandó portada, se arma una con el título del reporte.
-  if (bloques[0]?.tipo !== "portada") {
-    bloques.unshift({ tipo: "portada", spec: { title } });
-  }
+  const portada = bloques[0]?.tipo === "portada"
+    ? bloques.shift() as Extract<Bloque, { tipo: "portada" }>
+    : { tipo: "portada" as const, spec: { title } };
   const paginas = repartirEnPaginas(bloques);
+  const totalPaginas = paginas.length + 1;
+  const pie = (numero: number) => <View style={s.pie} fixed>
+    <View style={s.reglaPortada} />
+    <View style={s.pieFila}>
+      <Text>CONFIDENCIAL · USO INTERNO KPS</Text>
+      <Text>Pág. {numero} / {totalPaginas}</Text>
+    </View>
+  </View>;
 
-  return (
-    <Document title={title} author="Cronos Retail">
-      {paginas.map((pagina, p) => (
-        <Page key={p} size="LETTER" style={s.pagina}>
-          {pagina.map((b, i) => (
-            <BloqueVista key={i} bloque={b} />
-          ))}
-          <View style={s.pie} fixed>
-            <View style={s.reglaPortada} />
-            <View style={s.pieFila}>
-              <Text>{title}</Text>
-              <Text>
-                {p + 1} / {paginas.length}
-              </Text>
-              <Text>{generadoEl}</Text>
-            </View>
-          </View>
-        </Page>
-      ))}
-    </Document>
-  );
+  return <Document title={title} author="KPS" subject="Reporte generado por KPS AI">
+    <Page size="A4" style={s.paginaPortada}>
+      <Portada bloque={portada} generadoEl={generadoEl} usuario={usuario} zonaHoraria={zonaHoraria} logoSrc={logoSrc} />
+      {pie(1)}
+    </Page>
+    {paginas.map((pagina, p) => <Page key={p} size="A4" style={s.pagina}>
+      <View style={s.encabezado} fixed>
+        <View style={s.marcaFila}>
+          <Marca logoSrc={logoSrc} />
+          <Text style={s.encabezadoTitulo}>{title}</Text>
+        </View>
+        <View style={s.encabezadoLinea} />
+      </View>
+      {pagina.map((b, i) => <BloqueVista key={i} bloque={b} />)}
+      {pie(p + 2)}
+    </Page>)}
+  </Document>;
 }

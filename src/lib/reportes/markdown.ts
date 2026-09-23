@@ -1,8 +1,8 @@
 // Parser de markdown a bloques, para renderizar reportes en PDF.
 // react-pdf no entiende HTML ni markdown: hay que darle componentes, así que
 // primero convertimos el texto del modelo a una lista plana de bloques.
-// Subconjunto deliberado: portada, títulos, párrafos, tablas y listas.
-// Sin gráficas ni imágenes.
+// Subconjunto deliberado: portada, títulos, párrafos, tablas, listas y
+// gráficas de barras declaradas en JSON. No acepta imágenes externas.
 
 export interface CoverMetric {
   value: string;
@@ -13,17 +13,26 @@ export interface CoverMetric {
 export interface CoverSpec {
   title: string;
   subtitle?: string;
+  reference?: string;
+  context?: Array<{ label: string; value: string }>;
   metrics?: CoverMetric[];
+}
+
+export interface ChartSpec {
+  title: string;
+  unit?: string;
+  items: Array<{ label: string; value: number }>;
 }
 
 export type Alineacion = "left" | "right" | "center";
 
 export type Bloque =
   | { tipo: "portada"; spec: CoverSpec }
+  | { tipo: "grafica"; spec: ChartSpec }
   | { tipo: "title"; nivel: 1 | 2 | 3; texto: string; numero?: string }
   | { tipo: "parrafo"; texto: string }
   | { tipo: "tabla"; encabezados: string[]; filas: string[][]; alineacion: Alineacion[] }
-  | { tipo: "lista"; ordenada: boolean; items: string[] }
+  | { tipo: "lista"; ordenada: boolean; items: string[]; numeros?: Array<number | null> }
   | { tipo: "separador" };
 
 const SEPARADOR_TABLA = /^\|?[\s:|-]*-{2,}[\s:|-]*\|?$/;
@@ -60,12 +69,33 @@ function leerPortada(json: string): CoverSpec | null {
     return {
       title: d.title,
       subtitle: typeof d.subtitle === "string" ? d.subtitle : undefined,
+      reference: typeof d.reference === "string" ? d.reference.slice(0, 100) : undefined,
+      context: Array.isArray(d.context)
+        ? d.context.filter((item): item is { label: string; value: string } =>
+            !!item && typeof item.label === "string" && typeof item.value === "string"
+          ).slice(0, 4)
+        : undefined,
       metrics: Array.isArray(d.metrics)
         ? d.metrics
             .filter((m): m is CoverMetric => !!m && !!m.value && !!m.label)
             .slice(0, 4)
         : undefined,
     };
+  } catch {
+    return null;
+  }
+}
+
+function leerGrafica(json: string): ChartSpec | null {
+  try {
+    const d = JSON.parse(json) as Partial<ChartSpec>;
+    if (typeof d.title !== "string" || !Array.isArray(d.items)) return null;
+    const items = d.items.filter((item): item is { label: string; value: number } =>
+      !!item && typeof item.label === "string" && typeof item.value === "number" &&
+      Number.isFinite(item.value)
+    ).slice(0, 10);
+    if (!items.length) return null;
+    return { title: d.title.slice(0, 120), unit: typeof d.unit === "string" ? d.unit.slice(0, 30) : undefined, items };
   } catch {
     return null;
   }
@@ -100,6 +130,9 @@ export function parsearMarkdown(markdown: string): Bloque[] {
       if (lenguaje === "portada" || lenguaje === "cover") {
         const spec = leerPortada(cuerpo.join("\n"));
         if (spec) bloques.push({ tipo: "portada", spec });
+      } else if (lenguaje === "grafica" || lenguaje === "chart") {
+        const spec = leerGrafica(cuerpo.join("\n"));
+        if (spec) bloques.push({ tipo: "grafica", spec });
       }
       continue;
     }
